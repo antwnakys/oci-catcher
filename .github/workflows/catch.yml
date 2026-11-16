@@ -68,7 +68,7 @@ jobs:
       - name: Add the cloud SSH key
         continue-on-error: true
         run: |
-          PY=$(head -1 "$(readlink -f "$(command -v oci)")" | sed 's/^#!//')
+          PY=$(awk 'NR==1 {sub(/^#!/, ""); print $1; exit}' "$(readlink -f "$(command -v oci)")")
           pub=$("$PY" cloud_key.py)
           if [[ "$pub" == ssh-ed25519\ * ]]; then
             printf '%s\n' "$pub" >> ~/ssh_key.pub; echo "Cloud key added"

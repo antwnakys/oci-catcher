@@ -50,7 +50,7 @@ jobs:
           key_file=~/.oci/key.pem
           EOF
           chmod 600 ~/.oci/config
-          PY=$(head -1 "$(readlink -f "$(command -v oci)")" | sed 's/^#!//')
+          PY=$(awk 'NR==1 {sub(/^#!/, ""); print $1; exit}' "$(readlink -f "$(command -v oci)")")
           "$PY" cloud_key.py ~/.ssh/cloud
 
       - name: Set up the server
