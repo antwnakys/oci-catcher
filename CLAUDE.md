@@ -42,6 +42,8 @@ repository retries until it gets one.
   - On success: cancels the waiting run, opens one issue "Server caught" (GitHub
     emails the user) and disables the workflow.
   - Manual test run: `gh workflow run catch-server -f seconds=60`.
+  - Running a new catcher run replaces the one waiting in line (GitHub keeps one
+    pending run per concurrency group); that is how runs 9 and 10 got cancelled.
 - Secrets: OCI_USER, OCI_FINGERPRINT, OCI_TENANCY, OCI_REGION, OCI_KEY,
   SSH_PUBLIC_KEY, OCI_AD, OCI_SUBNET, OCI_IMAGE.
 - Incidents so far:
@@ -63,17 +65,30 @@ repository retries until it gets one.
   `gh issue list --repo antwnakys/oci-catcher --state all`
 
 ## When the server is caught
-Note: the SSH private key and the OCI CLI config exist only on the user's Mac
-(`~/.ssh/mcserver`, `~/.oci/config`, CLI at `~/.oci-cli-venv/bin/oci`). A cloud
-session cannot SSH into the server. Steps 2-4 need the Mac session or the user's help.
+The cloud can do the setup without the Mac (added 2026-11-16):
+- `cloud_key.py` derives a "cloud" SSH key from the OCI_KEY secret, always the same
+  key, so no extra secret is needed. The catcher adds its public key to the launch
+  next to the Mac key.
+- `.github/workflows/deploy.yml` ("set-up-server", script `deploy.sh`) starts
+  automatically after a catch. It reserves a fixed public IP, opens TCP 25565 in the
+  subnet's security list, copies `server/`, runs `sudo EULA=yes bash setup.sh`,
+  checks the service and the port, and comments the result on the "Server caught"
+  issue. It never prints IPs or OCIDs (public repository); the user reads the
+  address in the Oracle Cloud console.
+- Read-only test: `gh workflow run set-up-server -f mode=check`. Full run by hand:
+  `-f mode=setup` (safe to repeat).
+- Only a server caught by a catcher run older than this change lacks the cloud key;
+  that one needs the Mac once (SSH key `~/.ssh/mcserver`, OCI config `~/.oci/config`,
+  CLI at `~/.oci-cli-venv/bin/oci` on the Mac).
+Steps:
 1. Tell the user.
-2. Find the instance and its public IP with the OCI CLI. Reserve a static public IP.
-   Open TCP 25565 in the subnet's security list.
-3. Copy `server/` to the VM (user `ubuntu`) and run `sudo EULA=yes bash setup.sh`.
-   setup.sh fits the Java memory to the machine (6 GB -> 4G heap) and lowers view
+2. Watch the set-up-server run and its issue comment. If it failed, read the log,
+   fix, and run it again with `-f mode=setup`.
+3. setup.sh fits the Java memory to the machine (6 GB -> 4G heap) and lowers view
    distance on 1 core.
-4. Check the service and port 25565, then give the user the address.
-5. Delete the OCI_KEY secret (and the other OCI secrets) from this repository.
+4. Tell the user it works and how to find the address in the Oracle console.
+5. Deleting OCI_KEY also removes the cloud's ability to manage the server. Ask the
+   user before deleting the OCI secrets.
 6. The hourly routine disables or is deleted by the user at claude.ai/code/routines.
 7. Then: rclone to Google Drive (folder "Minecraft Backups", keep newest 3; the
    user approves the Google sign-in in their browser), plugins (Chunky, spark,

@@ -1,0 +1,77 @@
+name: set-up-server
+
+# Sets up the caught server without the user's Mac. The catcher starts this
+# automatically after a catch (mode=setup). Manual read-only test:
+#   gh workflow run set-up-server -f mode=check
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check = look only, change nothing; setup = set up the server"
+        type: choice
+        options: [check, setup]
+        default: check
+
+concurrency:
+  group: set-up-server
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OCI CLI
+        run: pipx install oci-cli
+
+      - name: Write OCI config and the cloud SSH key
+        env:
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_KEY: ${{ secrets.OCI_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=$OCI_USER
+          fingerprint=$OCI_FINGERPRINT
+          tenancy=$OCI_TENANCY
+          region=$OCI_REGION
+          key_file=~/.oci/key.pem
+          EOF
+          chmod 600 ~/.oci/config
+          PY=$(head -1 "$(readlink -f "$(command -v oci)")" | sed 's/^#!//')
+          "$PY" cloud_key.py ~/.ssh/cloud
+
+      - name: Set up the server
+        env:
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_SUBNET: ${{ secrets.OCI_SUBNET }}
+          MODE: ${{ inputs.mode }}
+        run: bash deploy.sh
+
+      - name: Report on the issue
+        if: always() && inputs.mode == 'setup'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          when=$(TZ=Europe/Athens date '+%Y-%m-%d %H:%M')
+          { echo "Server setup ($OUTCOME) at $when Greek time:"; echo; cat ~/report.md 2>/dev/null; } > body.md
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --search 'Server caught in:title' --json number --jq '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body-file body.md
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "Server setup report" --body-file body.md; fi
+
+      - name: Remove credentials
+        if: always()
+        run: rm -rf ~/.oci ~/.ssh/cloud ~/.ssh/known_hosts_mc ~/report.md

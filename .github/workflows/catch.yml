@@ -63,6 +63,19 @@ jobs:
           chmod 600 ~/.oci/config
           printf '%s\n' "$SSH_PUBLIC_KEY" > ~/ssh_key.pub
 
+      # Also let the "cloud" key log in, so set-up-server can work without the
+      # Mac. If this step fails, the catcher still runs with the Mac key only.
+      - name: Add the cloud SSH key
+        continue-on-error: true
+        run: |
+          PY=$(head -1 "$(readlink -f "$(command -v oci)")" | sed 's/^#!//')
+          pub=$("$PY" cloud_key.py)
+          if [[ "$pub" == ssh-ed25519\ * ]]; then
+            printf '%s\n' "$pub" >> ~/ssh_key.pub; echo "Cloud key added"
+          else
+            echo "::warning::Cloud key not added; the server will accept only the Mac key"
+          fi
+
       - name: Catch server
         id: catch
         env:
@@ -88,7 +101,9 @@ jobs:
           fi
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "Server caught" \
-            --body "Oracle accepted the request. The 'minecraft' server is being created. Future catcher runs are now disabled."
+            --body "Oracle accepted the request. The 'minecraft' server is being created. Future catcher runs are now disabled. Automatic setup has started; its result will be posted here."
+          gh workflow run set-up-server --repo "$GITHUB_REPOSITORY" -f mode=setup \
+            || echo "::warning::Could not start set-up-server; start it by hand"
           gh workflow disable catch-server --repo "$GITHUB_REPOSITORY"
 
       - name: Remove credentials
