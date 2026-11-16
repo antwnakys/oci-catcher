@@ -25,6 +25,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Queue the next run right away. It waits in line (concurrency group) and
+      # starts the moment this run ends, even if this run crashes or is killed.
+      - name: Queue the next run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in 1 2 3 4 5; do
+            gh workflow run catch-server --repo "$GITHUB_REPOSITORY" && exit 0
+            sleep 20
+          done
+          echo "::warning::Could not queue the next run; the hourly schedule is the backup"
+
       - name: Install OCI CLI
         run: pipx install oci-cli
 
@@ -66,18 +78,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Stop the run that is waiting in line, then announce once.
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow catch-server --status pending --json databaseId --jq '.[].databaseId' \
+            | xargs -r -n1 gh run cancel --repo "$GITHUB_REPOSITORY" || true
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow catch-server --status queued --json databaseId --jq '.[].databaseId' \
+            | xargs -r -n1 gh run cancel --repo "$GITHUB_REPOSITORY" || true
+          if [ "$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --search 'Server caught in:title' --json number --jq length)" != "0" ]; then
+            gh workflow disable catch-server --repo "$GITHUB_REPOSITORY"; exit 0
+          fi
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "Server caught" \
             --body "Oracle accepted the request. The 'minecraft' server is being created. Future catcher runs are now disabled."
           gh workflow disable catch-server --repo "$GITHUB_REPOSITORY"
-
-      # GitHub's hourly schedule is unreliable (it never fired for this repo),
-      # so each run queues the next one itself. It waits in line until this run ends.
-      - name: Start the next run
-        if: success() && steps.catch.outputs.caught != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run catch-server --repo "$GITHUB_REPOSITORY"
 
       - name: Remove credentials
         if: always()
