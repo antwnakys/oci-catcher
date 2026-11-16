@@ -10,7 +10,7 @@ on:
     - cron: "17 * * * *"   # hourly; only one run at a time, the next waits in line
 
 concurrency:
-  group: catcher
+  group: catcher-v2
   cancel-in-progress: false
 
 permissions:
