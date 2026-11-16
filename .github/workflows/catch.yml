@@ -71,6 +71,14 @@ jobs:
             --body "Oracle accepted the request. The 'minecraft' server is being created. Future catcher runs are now disabled."
           gh workflow disable catch-server --repo "$GITHUB_REPOSITORY"
 
+      # GitHub's hourly schedule is unreliable (it never fired for this repo),
+      # so each run queues the next one itself. It waits in line until this run ends.
+      - name: Start the next run
+        if: success() && steps.catch.outputs.caught != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run catch-server --repo "$GITHUB_REPOSITORY"
+
       - name: Remove credentials
         if: always()
         run: rm -rf ~/.oci ~/ssh_key.pub
