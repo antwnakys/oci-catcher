@@ -1,0 +1,71 @@
+name: catch-server
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"   # hourly; only one run at a time, the next waits in line
+
+concurrency:
+  group: catcher
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+jobs:
+  catch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OCI CLI
+        run: pipx install oci-cli
+
+      - name: Write OCI config
+        env:
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_KEY: ${{ secrets.OCI_KEY }}
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=$OCI_USER
+          fingerprint=$OCI_FINGERPRINT
+          tenancy=$OCI_TENANCY
+          region=$OCI_REGION
+          key_file=~/.oci/key.pem
+          EOF
+          chmod 600 ~/.oci/config
+          printf '%s\n' "$SSH_PUBLIC_KEY" > ~/ssh_key.pub
+
+      - name: Catch server
+        id: catch
+        env:
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_AD: ${{ secrets.OCI_AD }}
+          OCI_SUBNET: ${{ secrets.OCI_SUBNET }}
+          OCI_IMAGE: ${{ secrets.OCI_IMAGE }}
+        run: bash catch.sh
+
+      - name: Announce and stop future runs
+        if: steps.catch.outputs.caught == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Server caught" \
+            --body "Oracle accepted the request. The 'minecraft' server is being created. Future catcher runs are now disabled."
+          gh workflow disable catch-server --repo "$GITHUB_REPOSITORY"
+
+      - name: Remove credentials
+        if: always()
+        run: rm -rf ~/.oci ~/ssh_key.pub
