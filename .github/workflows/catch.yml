@@ -2,6 +2,10 @@ name: catch-server
 
 on:
   workflow_dispatch:
+    inputs:
+      seconds:
+        description: "How long to keep trying (seconds). Default 20400 = 5h40m"
+        default: "20400"
   schedule:
     - cron: "17 * * * *"   # hourly; only one run at a time, the next waits in line
 
@@ -54,6 +58,7 @@ jobs:
           OCI_AD: ${{ secrets.OCI_AD }}
           OCI_SUBNET: ${{ secrets.OCI_SUBNET }}
           OCI_IMAGE: ${{ secrets.OCI_IMAGE }}
+          DEADLINE: ${{ inputs.seconds || '20400' }}
         run: bash catch.sh
 
       - name: Announce and stop future runs
